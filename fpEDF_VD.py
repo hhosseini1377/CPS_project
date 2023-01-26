@@ -67,27 +67,29 @@ class task_job():
 
         # The actual execution time of a job
         # self.remaining_execution_time = round(random.uniform(0, task.C_h, 1)[0], time_decimals)
-        self.remaining_execution_time = round(task.C_h, time_decimals)
+        self.remaining_execution_time = round(random.uniform(task.C_l/2, task.C_l, 1)[0], time_decimals)
+        self.execution_time = 0
 
     """
-    This function reduces the remaining execution time of the job and 
+    This function reduces remaining execution time of the job and 
     checks if the task is completed.
     """
     def check_completion(self, rho, time_delta, system_mode):
         if system_mode == 'high_criticality':
             speed_rate = 1
         else:
-
             speed_rate = rho
         self.remaining_execution_time -= round(time_delta*speed_rate, time_decimals)
         self.remaining_execution_time = round(self.remaining_execution_time, time_decimals)
+        self.execution_time += round(time_delta*speed_rate, time_decimals)
+        self.execution_time = round(self.execution_time, time_decimals)
         if self.remaining_execution_time <= 0:
             self.completed = True
             return True
         return False
     
-    def check_low_criticality_miss(self, time):
-        if time > self.virtual_deadline :
+    def check_low_criticality_miss(self):
+        if self.execution_time > self.task.C_l:
             return True
         else:
             return False
@@ -106,7 +108,7 @@ class task_job():
                 ready_queue.remove(self)
                 return True
 
-        replace_with_highest_deadline_job(ready_queue=ready_queue, system_mode=system_mode, job=self, cores=cores)
+        replace_with_highest_deadline_job(ready_queue=ready_queue, system_mode=system_mode, job=self, cores=cores, is_laxity=False)
         return False
             
 # Define a class for task sets
@@ -165,7 +167,7 @@ class core():
         self.running_job = job
             
 
-# Generating the tasks
+# Generate the tasks
 def generate_tasks():
 
     sets = []
@@ -208,7 +210,7 @@ def find_least_virtual_deadline(ready_queue):
         return least_deadline_job
     return None
 
-def replace_with_highest_deadline_job(ready_queue, system_mode, cores, job):
+def replace_with_highest_deadline_job(ready_queue, system_mode, cores, job, is_laxity):
     """
     Find the preemptive task with highest deadline to be replaced by a job.
     """ 
@@ -220,22 +222,24 @@ def replace_with_highest_deadline_job(ready_queue, system_mode, cores, job):
                 if core_.running_job.virtual_deadline > most_deadline:
                     most_deadline_running_job = core_.running_job
                     most_deadline = core_.running_job.virtual_deadline
-        if most_deadline_running_job and job.virtual_deadline < most_deadline:
-            ready_queue.append(core_.running_job)
-            ready_queue.remove(job)
-            core_.running_job = job
-            return True
+        if most_deadline_running_job:
+            if (job.virtual_deadline < most_deadline and not is_laxity) or is_laxity:
+                ready_queue.append(core_.running_job)
+                ready_queue.remove(job)
+                core_.running_job = job
+                return True
     else:
         for core_ in cores:
             if core_.running_job and core_.running_job.preemptable:
                 if core_.running_job.deadline > most_deadline:
                     most_deadline_running_job = core_.running_job
                     most_deadline = core_.running_job.deadline
-        if most_deadline_running_job and job.deadline < most_deadline:
-            ready_queue.append(core_.running_job)
-            ready_queue.remove(job)
-            core_.running_job = job
-            return True  
+        if most_deadline_running_job:
+            if (job.deadline < most_deadline and not is_laxity) or is_laxity:
+                ready_queue.append(core_.running_job)
+                ready_queue.remove(job)
+                core_.running_job = job
+                return True  
     
 def find_least_actual_deadline(ready_queue):
     """
@@ -250,8 +254,8 @@ def find_least_actual_deadline(ready_queue):
         return least_deadline_job
     return None
 
-def change_mode(ready_queue, active_queue, cores_list, destination_mode):
-    ready_queue = active_queue
+def change_mode(active_queue, cores_list, destination_mode):
+    ready_queue = active_queue.copy()
 
     # Remove jobs from  cores
     for core_ in cores_list:
@@ -270,18 +274,19 @@ def change_mode(ready_queue, active_queue, cores_list, destination_mode):
             core_.running_job = least_deadline
         else:
             break    
+    return ready_queue
 
 def check_laxity(ready_queue, time, rho, time_delta, system_mode, cores):
     
     for job in ready_queue:
         if system_mode == 'low_criticality':
             if job.remaining_execution_time >= time_delta + (job.virtual_deadline - time)/rho:
-                replace_with_highest_deadline_job(ready_queue=ready_queue, system_mode=system_mode, cores=cores, job=job)
+                replace_with_highest_deadline_job(ready_queue=ready_queue, system_mode=system_mode, cores=cores, job=job, is_laxity=True)
                 job.preemptable = False
                 print('There is no enough laxity, job set on the core')
         else:
             if job.remaining_execution_time >= time_delta + (job.deadline - time):
-                replace_with_highest_deadline_job(ready_queue=ready_queue, system_mode=system_mode, cores=cores, job=job)
+                replace_with_highest_deadline_job(ready_queue=ready_queue, system_mode=system_mode, cores=cores, job=job, is_laxity=True)
                 job.preemptable = False 
                 print('There is no enough laxity, job set on the core')
 
@@ -315,9 +320,10 @@ def fpEDF_VD(work_load):
     
     time = 0
     work_load_missed = False
+    time_interval = 0
 
     while True:
-        print(len(active_queue))
+        len(active_queue)
         check_laxity(ready_queue=ready_queue, time=time, rho=rho, time_delta=time_delta, system_mode=cores_mode, cores=cores_list)
 
         # Check if any task releases new job
@@ -340,13 +346,13 @@ def fpEDF_VD(work_load):
 
             # Check if any task has missed its virtual deadline
             for job in active_queue:
-                if job.check_low_criticality_miss(time):
+                if job.check_low_criticality_miss():
                     if not job.task.high_critical:
                         work_load_missed = True
                     else:
-                        print("System mode swtiched to high criticality")
+                        print("System mode swtiched to HIGH CRITICALITY")
                         cores_mode = 'high_criticality'
-                        change_mode(ready_queue=ready_queue, destination_mode=cores_mode, active_queue=active_queue, cores_list=cores_list)
+                        ready_queue = change_mode(destination_mode=cores_mode, active_queue=active_queue, cores_list=cores_list)
                     
         elif cores_mode == 'high_criticality':
 
@@ -364,8 +370,8 @@ def fpEDF_VD(work_load):
             # Check if no task exists in the system. If this condition is met change systems mode to low ciriticality
             if not active_queue:
                 cores_mode = 'low_criticality'
-                change_mode(ready_queue=ready_queue, destination_mode=cores_mode, active_queue=active_queue, cores_list=cores_list)
-                print('System mode change to high criticality')
+                ready_queue = change_mode(destination_mode=cores_mode, active_queue=active_queue, cores_list=cores_list)
+                print('System mode swtiched to LOW CRITICALITY')
 
 
         if work_load_missed:
@@ -374,6 +380,12 @@ def fpEDF_VD(work_load):
             
         time += round(time_delta, time_decimals)
         time = round(time, time_decimals)
+
+        if time == time_interval:
+            print(time)
+            time_interval += 1
+
+
 
 
 work_loads = generate_tasks()
