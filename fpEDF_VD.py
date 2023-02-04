@@ -1,6 +1,8 @@
 from UUnifast import UUniFastDiscard
 from numpy import random 
 import random as rand
+import numpy as np
+import cvxpy as cvx
 
 # Define constant values
 n_set = [20, 40, 60, 80, 100]
@@ -149,6 +151,106 @@ class work_load():
         else:
             self.schedulable = False
 
+    def MCF_FR_pre_processing(self):
+
+        tasks = self.set
+        m = self.m
+        uLOvalues = np.array([t.u_l for t in tasks])
+        uHIvalues = np.array([t.u_h for t in tasks])
+        uL_total = sum(uLOvalues)
+        uH_total = sum(uHIvalues)
+        uL_max = max(uLOvalues)
+        uH_max = max(uHIvalues)
+
+        termA = uL_total/(m + uL_total - uH_total)
+        termB = max(uLOvalues/(1+uLOvalues-uHIvalues))
+        lambdaValue = max(termA, termB)
+
+        if uL_total >= self.rho*self.m:
+            output_MCFFR = False
+        elif uH_total >= m:
+            output_MCFFR = False
+        elif lambdaValue <= self.rho:
+            output_MCFFR = True
+            theta3 = uLOvalues/lambdaValue + uHIvalues - uLOvalues
+            theta_L3 = lambdaValue * theta3
+            theta_H3 = theta3
+        else:
+            output_MCFFR = False
+
+        return output_MCFFR
+    
+    def MCF_MP_pre_processing(self, ):
+        n = self.n
+        tasks = self.set
+
+        uLOvalues = np.array([t.u_l for t in tasks])
+        uHIvalues = np.array([t.u_h for t in tasks])
+        cLOvalues =  np.array([t.C_l for t in tasks])
+        cHIvalues =  np.array([t.C_h for t in tasks])
+        tvalues =  np.array([t.period for t in tasks])
+
+        # Creating CVX variables
+        variables = list()
+        # Creating CVX inverse variables for the non-linear (convex) condition
+        invVariables = list()
+
+        # Creating theta_LO variables
+        for i in range(n):
+            a = cvx.Variable()
+            variables.append(a)
+            invVariables.append(cvx.inv_pos(a))
+        
+        # Creating theta_HI variables
+        for i in range(n):
+            b = cvx.Variable()
+            variables.append(b)
+            invVariables.append(cvx.inv_pos(b))
+
+        # Creating constraints
+        constraints = list()
+        for i in range(n):
+            constraints.append(variables[i] <= self.rho)
+            constraints.append(variables[i] >= uLOvalues[i])
+            constraints.append(variables[i+n] <= 1)
+            constraints.append(variables[i+n] >= uHIvalues[i])
+            constraints.append(variables[i] <= variables[i+n])
+            constraints.append(cLOvalues[i]*invVariables[i] + (cHIvalues[i] - cLOvalues[i])*invVariables[i+n] <= tvalues[i])
+        constraints.append(cvx.sum([variables[i] for i in range(n)]) <= self.rho*self.m)
+        constraints.append(cvx.sum([variables[i+n] for i in range(n)]) <= self.m)
+
+
+        # Creating dummy objective function
+        objective = cvx.Minimize(1)
+
+        # CVX problem formulation
+        CVX_FAILURE = False
+        problem = cvx.Problem(objective, constraints)
+        if problem.is_dcp():
+            try:
+                problem.solve(solver=cvx.CVXOPT)
+            except cvx.error.SolverError:
+                try:
+                    problem.solve()
+                except:
+                    CVX_FAILURE = True
+        else:
+            CVX_FAILURE = True
+
+
+        # if np.isinf(problem.value):
+        if problem.status in ["infeasible", "unbounded"]:
+            # No feasible set
+            output_MCFMP_CVXPY = False
+        else:
+            output_MCFMP_CVXPY = True
+        if not CVX_FAILURE:
+            return output_MCFMP_CVXPY
+        else:
+            return 'error'
+
+
+
 class core():
     def __init__(self) -> None:
         self.running_job = None
@@ -182,9 +284,9 @@ def generate_tasks():
         utilization_exceeded = False
 
         # Check if each utilization is less than 1. If this condition is met the set will be added to the task_sets.
-        for util in set:
-            util *= m
-            if util > 1:
+        for i in range(len(set)):
+            set[i] *= m
+            if set[i] > 1:
                 # Discard a task if its utilization exceeds 1.
                 utilization_exceeded = True
                 continue
@@ -194,7 +296,7 @@ def generate_tasks():
             for util in set:
                 generated_take_set.set.append(task(util[0]))
             sets.append(generated_take_set)
-
+    print(sum(set))
     return sets
 
 def find_least_virtual_deadline(ready_queue):
@@ -390,7 +492,10 @@ def fpEDF_VD(work_load):
 
 work_loads = generate_tasks()
 for task_set in work_loads:
-    task_set.fpEDF_VD_preprocessing()
-    if task_set.schedulable:
-        fpEDF_VD(work_load=task_set)
-        break
+    out = task_set.MCF_MP_pre_processing()
+    if out != 'error':
+        print(out)
+    # task_set.fpEDF_VD_preprocessing()
+    # if task_set.schedulable:
+    #     fpEDF_VD(work_load=task_set)
+    #     break
