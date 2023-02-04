@@ -6,11 +6,11 @@ import cvxpy as cvx
 
 # Define constant values
 n_set = [20, 40, 60, 80, 100]
-m_set = [2, 4, 8]
-rho_set = [0.3, 0.5, 0.7, 0.9]
+m_set = [2]
+rho_set = [0.3]
 C_down, C_up = 1, 100
 R, P = 4, 0.5
-task_sets_num = 10000
+task_sets_num = 200
 time_delta = 0.01
 time_decimals = 2
 
@@ -488,14 +488,48 @@ def fpEDF_VD(work_load):
             time_interval += 1
 
 
-
-
 work_loads = generate_tasks()
+results = []
+
+i = 0
+while i < 1:
+    i = round(i, 2)
+    result = {
+        'utilization': i,
+        'fpEDF-VD': 0,
+        'MCF-FR': 0,
+        'MCF-MP': 0,
+        'count': 0
+    }
+    i += 0.05
+    results.append(result)
+
+total_task_set = 0
 for task_set in work_loads:
-    out = task_set.MCF_MP_pre_processing()
-    if out != 'error':
-        print(out)
-    # task_set.fpEDF_VD_preprocessing()
-    # if task_set.schedulable:
-    #     fpEDF_VD(work_load=task_set)
-    #     break
+    print(total_task_set)
+    task_set_utilization = (task_set.utilization[0]//0.05)*0.05
+    task_set_utilization = round(task_set_utilization, 2)
+
+    for result in results:
+        if result['utilization'] == task_set_utilization:
+            break
+
+    out_MCF_mp = task_set.MCF_MP_pre_processing()
+    if out_MCF_mp != 'error':
+        if not out_MCF_mp:
+            result['MCF-MP'] += 1
+    else:
+        continue
+    if not task_set.MCF_FR_pre_processing():
+        result['MCF-FR'] += 1
+    if not task_set.fpEDF_VD_preprocessing():
+        result['fpEDF-VD'] += 1
+
+    total_task_set += 1
+    result['count'] += 1
+
+for result in results:
+    result['MCF-FR'] = result['MCF-FR']  / result['count']
+    result['MCF-MP'] = result['MCF-MP']  / result['count']
+    result['fpEDF-VD'] = result['fpEDF-VD']  / result['count']
+print(results)
