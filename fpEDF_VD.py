@@ -6,11 +6,11 @@ import cvxpy as cvx
 
 # Define constant values
 n_set = [20, 40, 60, 80, 100]
-m_set = [2]
-rho_set = [0.3]
+m_set = [4]
+rho_set = [0.6]
 C_down, C_up = 1, 100
 R, P = 4, 0.5
-task_sets_num = 200
+task_sets_num = 1000
 time_delta = 0.01
 time_decimals = 2
 
@@ -128,28 +128,23 @@ class work_load():
     if it is schedulable, the ratio for the virtual deadline will be set.
     """
     def fpEDF_VD_preprocessing(self):
+
         tasks = self.set
         m = self.m
-        u_l_max = 0
-        u_h_max = 0
-        u_h = 0
-        u_l = 0
-        for task in tasks:
-            if task.u_l > u_l_max:
-                u_l_max = task.u_l
-            if task.u_h > u_h_max:
-                u_h_max = task.u_h
-            u_h += task.u_h
-            u_l += task.u_l
-        x = max( u_l_max/self.rho, u_l/(((m+1)/2)*self.rho) )
-        
-        if x + max(u_h_max, u_h/((m+1)/2)) <= 1:
-            self.schedulable = True
-            for task in self.set:
-                task.set_virtual_deadline(x)
-            self.x = x
-        else:
-            self.schedulable = False
+        uLOvalues = np.array([t.u_l for t in tasks])
+        uHIvalues = np.array([t.u_h for t in tasks])
+        uL_total = sum(uLOvalues)
+        uH_total = sum(uHIvalues)
+        uL_max = max(uLOvalues)
+        uH_max = max(uHIvalues)
+
+        termA = max(uL_max/self.rho , uL_total/((self.m+1)*self.rho/2))
+        termB = max(uH_max, uH_total/((self.m+1)/2))
+
+        self.x = termA
+        output_fpEDFVD = ((termA + termB) <= 1)
+
+        return output_fpEDFVD
 
     def MCF_FR_pre_processing(self):
 
@@ -219,7 +214,6 @@ class work_load():
         constraints.append(cvx.sum([variables[i] for i in range(n)]) <= self.rho*self.m)
         constraints.append(cvx.sum([variables[i+n] for i in range(n)]) <= self.m)
 
-
         # Creating dummy objective function
         objective = cvx.Minimize(1)
 
@@ -237,7 +231,6 @@ class work_load():
         else:
             CVX_FAILURE = True
 
-
         # if np.isinf(problem.value):
         if problem.status in ["infeasible", "unbounded"]:
             # No feasible set
@@ -248,7 +241,6 @@ class work_load():
             return output_MCFMP_CVXPY
         else:
             return 'error'
-
 
 
 class core():
@@ -509,20 +501,20 @@ for task_set in work_loads:
     print(total_task_set)
     task_set_utilization = (task_set.utilization[0]//0.05)*0.05
     task_set_utilization = round(task_set_utilization, 2)
-
+    
     for result in results:
         if result['utilization'] == task_set_utilization:
             break
 
     out_MCF_mp = task_set.MCF_MP_pre_processing()
     if out_MCF_mp != 'error':
-        if not out_MCF_mp:
+        if out_MCF_mp:
             result['MCF-MP'] += 1
     else:
         continue
-    if not task_set.MCF_FR_pre_processing():
+    if task_set.MCF_FR_pre_processing():
         result['MCF-FR'] += 1
-    if not task_set.fpEDF_VD_preprocessing():
+    if task_set.fpEDF_VD_preprocessing():
         result['fpEDF-VD'] += 1
 
     total_task_set += 1
